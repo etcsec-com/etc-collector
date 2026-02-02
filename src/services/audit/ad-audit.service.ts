@@ -830,7 +830,7 @@ export class ADAuditService {
    */
   private async fetchAclsForObjects(objectDns: string[]): Promise<AclEntry[]> {
     const allAclEntries: AclEntry[] = [];
-    let successCount = 0;
+    let _successCount = 0;
 
     // Batch requests to avoid overwhelming LDAP server
     const BATCH_SIZE = 100;
@@ -848,7 +848,7 @@ export class ADAuditService {
           });
 
           if (results.length > 0 && results[0].nTSecurityDescriptor) {
-            successCount++;
+            _successCount++;
             const secDescriptor = results[0].nTSecurityDescriptor;
 
             // Convert to Buffer if needed (ldapts may return as Buffer or string)
