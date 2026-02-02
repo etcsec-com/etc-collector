@@ -1,7 +1,7 @@
 import { createApp } from './app';
 import { getConfig } from './config';
-import { logInfo, logError } from './utils/logger';
-import { MigrationRunner } from './data/migrations/migration.runner';
+import { logInfo, logError, setVerbose } from './utils/logger';
+// Note: MigrationRunner is dynamically imported to avoid loading better-sqlite3 in SaaS mode
 import { DIContainer } from './container';
 import { version } from '../package.json';
 import { parseArgs, validateArgs, showHelp, showVersion } from './cli';
@@ -25,7 +25,8 @@ async function startStandaloneMode(): Promise<void> {
       nodeEnv: config.server.nodeEnv,
     });
 
-    // Run database migrations
+    // Run database migrations (dynamic import to avoid loading better-sqlite3 in SaaS mode)
+    const { MigrationRunner } = await import('./data/migrations/migration.runner');
     await MigrationRunner.runMigrations(config.database.path);
     logInfo('Database migrations completed');
 
@@ -70,6 +71,11 @@ async function startSaaSMode(): Promise<void> {
     // Parse CLI arguments
     const args = parseArgs();
 
+    // Enable verbose logging if requested
+    if (args.verbose) {
+      setVerbose(true);
+    }
+
     // Validate arguments
     const validation = validateArgs(args);
     if (!validation.valid) {
@@ -92,7 +98,7 @@ async function startSaaSMode(): Promise<void> {
 
     // Handle enrollment
     if (args.enroll) {
-      const saasUrl = args.saasUrl || 'https://app.etcsec.com';
+      const saasUrl = args.saasUrl || 'https://api.etcsec.com';
       await enrollmentService.enroll(args.token!, saasUrl);
       process.exit(0);
     }
@@ -129,8 +135,8 @@ async function startSaaSMode(): Promise<void> {
       // Convert SaaS config to application config
       const appConfig = adaptSaaSConfig(credentials.config);
 
-      // Initialize DI container with adapted config
-      await DIContainer.initialize(appConfig);
+      // Initialize DI container with adapted config (skip database for Bun compatibility)
+      await DIContainer.initialize(appConfig, { skipDatabase: true });
       logInfo('DI container initialized with SaaS config');
 
       // Create SaaS client

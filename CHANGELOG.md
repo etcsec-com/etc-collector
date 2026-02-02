@@ -1,44 +1,54 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to ETC Collector will be documented in this file.
 
-## [1.5.2] - 2026-02-02
+## [1.5.3] - 2025-02-02
 
-### Features
-
-- **SaaS Integration Mode**: Dual-mode support for standalone and SaaS operation
-  - CLI commands: `--enroll`, `--daemon`, `--status`, `--unenroll`
-  - Automatic enrollment with SaaS platform
-  - Polling-based command execution from fleet management
-  - Encrypted local credential storage (AES-256-GCM)
-  - Exponential backoff retry (1s → 5min max)
-  - Support for RUN_AUDIT, RUN_AUDIT_AZURE, HEALTH_CHECK commands
-  - Real-time audit execution with result push to SaaS
-
-### Changed
-
-- Server entry point now supports both standalone and SaaS modes
-- DI container accepts external configuration for SaaS mode
-- Enhanced configuration adapter for dynamic config management
+### Fixed
+- **Windows binary crash**: Fixed crash on Windows due to `better-sqlite3` native module incompatibility with Bun runtime. Database modules are now dynamically imported only when needed (standalone mode).
 
 ### Added
+- **Verbose logging**: Added `--verbose` / `-V` flag for debug-level logging
+- **Environment variable support**:
+  - `ETCSEC_ENROLL_TOKEN` - Enrollment token (more secure than CLI argument)
+  - `ETCSEC_VERBOSE` - Enable debug logging
+- **Improved CLI help**: Better documentation of all options and environment variables
 
-- CLI argument parser (`src/cli/index.ts`)
-- SaaS types and interfaces (`src/types/saas.types.ts`)
-- SaaS client service for fleet API communication
-- Credential store with machine-specific encryption
-- Daemon service with polling loop
-- Command handler for SaaS commands
-- Config adapter for SaaS-to-app config conversion
+### Changed
+- Default SaaS API URL changed to `https://api.etcsec.com`
+- Database initialization is now skipped in SaaS mode for better Bun compatibility
 
-## [1.4.0] - 2026-02-02
+## [1.5.2] - 2025-01-31
 
-Initial public release.
+### Added
+- **SaaS Integration Mode**: New collector mode for managed deployments
+  - `--enroll` command for registration with SaaS platform
+  - `--daemon` mode for automated audit execution
+  - `--status` and `--unenroll` management commands
+- Encrypted local credential storage (AES-256-GCM)
+- Exponential backoff retry logic for network errors
+- Health reporting to SaaS platform
 
-### Features
+## [1.5.1] - 2025-01-30
 
-- Active Directory security auditing with 87 vulnerability detectors
-- Azure AD security auditing with 27 vulnerability detectors
-- REST API with JWT authentication
-- Export to JSON and CSV formats
-- Docker and npm distribution
+### Added
+- Bun-based binary builds for all platforms (Linux, macOS, Windows)
+- GitHub Actions release workflow
+
+### Fixed
+- Build and packaging improvements
+
+## [1.4.0] - 2025-01-29
+
+### Added
+- Initial public release
+- Active Directory security auditing
+- Azure AD/Entra ID security auditing
+- JWT-based API authentication
+- SMB share scanning for SYSVOL
+- LDAP signing detection
+- 30+ security checks
+
+## License
+
+Apache-2.0

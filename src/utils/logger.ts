@@ -109,3 +109,27 @@ export const logWarn = (message: string, metadata?: Record<string, unknown>): vo
 export const logDebug = (message: string, metadata?: Record<string, unknown>): void => {
   logger.debug(message, metadata);
 };
+
+/**
+ * Enable verbose/debug logging at runtime
+ * Used by --verbose flag
+ */
+export const setVerbose = (enabled: boolean): void => {
+  if (enabled) {
+    logger.level = 'debug';
+    // Also update console transport to use simple format for readability
+    logger.transports.forEach((transport) => {
+      if (transport instanceof winston.transports.Console) {
+        transport.format = winston.format.combine(
+          winston.format.colorize(),
+          winston.format.timestamp({ format: 'HH:mm:ss' }),
+          winston.format.printf(({ level, message, timestamp, ...meta }) => {
+            const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
+            return `[${timestamp}] ${level}: ${message}${metaStr}`;
+          })
+        );
+      }
+    });
+    logger.debug('Verbose logging enabled');
+  }
+};

@@ -17,18 +17,28 @@ Usage:
   etc-collector --unenroll          Remove enrollment
 
 Enrollment options:
-  --token=TOKEN       Enrollment token from SaaS UI (required)
-  --saas-url=URL      SaaS API URL (default: https://app.etcsec.com)
+  --token=TOKEN       Enrollment token (or set ETCSEC_ENROLL_TOKEN env var for security)
+  --saas-url=URL      SaaS API URL (default: https://api.etcsec.com)
+
+Environment variables:
+  ETCSEC_ENROLL_TOKEN   Enrollment token (more secure than --token, not shown in ps)
+  ETCSEC_VERBOSE        Set to 'true' to enable debug logging
+
+Daemon options:
+  --verbose, -V       Enable verbose logging (debug level)
 
 Examples:
   # Standalone mode (open source)
   $ etc-collector
 
-  # SaaS enrollment
+  # SaaS enrollment (token via argument)
   $ etc-collector --enroll --token=etcsec_enroll_abc123
 
-  # Start as SaaS agent
-  $ etc-collector --daemon
+  # SaaS enrollment (token via env var - more secure)
+  $ ETCSEC_ENROLL_TOKEN=etcsec_enroll_abc123 etc-collector --enroll
+
+  # Start as SaaS agent with verbose logging
+  $ etc-collector --daemon --verbose
 
   # Check enrollment status
   $ etc-collector --status
@@ -36,6 +46,7 @@ Examples:
 Options:
   --help, -h          Show this help message
   --version, -v       Show version number
+  --verbose, -V       Enable verbose/debug logging
 `;
 
 /**
@@ -58,6 +69,11 @@ export function parseArgs(argv: string[] = process.argv.slice(2)): CLIArgs {
       case '--version':
       case '-v':
         args.version = true;
+        break;
+
+      case '--verbose':
+      case '-V':
+        args.verbose = true;
         break;
 
       case '--enroll':
@@ -92,6 +108,17 @@ export function parseArgs(argv: string[] = process.argv.slice(2)): CLIArgs {
           process.exit(1);
         }
     }
+  }
+
+  // Read token from environment variable if not provided via argument
+  // This is more secure as it doesn't appear in process list or shell history
+  if (!args.token && process.env['ETCSEC_ENROLL_TOKEN']) {
+    args.token = process.env['ETCSEC_ENROLL_TOKEN'];
+  }
+
+  // Read verbose from environment variable
+  if (!args.verbose && process.env['ETCSEC_VERBOSE'] === 'true') {
+    args.verbose = true;
   }
 
   return args;
