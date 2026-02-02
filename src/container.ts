@@ -81,15 +81,16 @@ export class DIContainer {
    * This method must be called before using the container.
    * It loads configuration, initializes database, loads RSA keys, and creates all services.
    *
+   * @param externalConfig - Optional config (for SaaS mode). If not provided, loads from environment
    * @returns Promise<DIContainer> Initialized container instance
    */
-  static async initialize(): Promise<DIContainer> {
+  static async initialize(externalConfig?: any): Promise<DIContainer> {
     if (DIContainer.instance) {
       return DIContainer.instance;
     }
 
     const container = new DIContainer();
-    await container.init();
+    await container.init(externalConfig);
     DIContainer.instance = container;
     return container;
   }
@@ -104,11 +105,11 @@ export class DIContainer {
   /**
    * Internal initialization logic
    */
-  private async init(): Promise<void> {
+  private async init(externalConfig?: any): Promise<void> {
     this.logger.info('Initializing DI container');
 
     // 1. Load configuration
-    const config = getConfig();
+    const config = externalConfig || getConfig();
     this.logger.debug('Configuration loaded', {
       port: config.server.port,
       env: config.server.nodeEnv,
