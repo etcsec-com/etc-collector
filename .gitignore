@@ -30,9 +30,9 @@ coverage/
 .DS_Store
 Thumbs.db
 
-# Data directories
-data/
-token-data/
+# Data directories (root level only, not src/data)
+/data/
+/token-data/
 
 # Certificates
 certs/
