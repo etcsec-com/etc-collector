@@ -16,6 +16,7 @@ export interface CLIArgs {
   unenroll?: boolean;
   help?: boolean;
   version?: boolean;
+  verbose?: boolean;
 }
 
 /**
