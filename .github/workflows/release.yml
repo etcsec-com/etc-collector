@@ -1,12 +1,12 @@
 # ============================================================================
 # Release Workflow - Publishes packages when a version tag is pushed
 # ============================================================================
-# Triggered by: git tag v1.4.0 && git push public --tags
+# Triggered by: git tag v1.5.0 && git push public v1.5.0
 #
 # This workflow:
 # 1. Builds and pushes Docker image to GitHub Container Registry (ghcr.io)
 # 2. Publishes npm package to npmjs.com
-# 3. Creates standalone binaries for Linux/macOS/Windows
+# 3. Creates standalone binaries for Linux/macOS/Windows using Bun
 # 4. Creates a GitHub Release with binaries attached
 
 name: Release
@@ -41,9 +41,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # TODO: Re-enable tests when fixed
-      # - name: Run tests
-      #   run: npm test
+      - name: Run tests
+        run: npm test
 
       - name: Build TypeScript
         run: npm run build
@@ -99,7 +98,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   # --------------------------------------------------------------------------
-  # Job 3: Publish npm Package (using Trusted Publishing - no token needed!)
+  # Job 3: Publish npm Package
   # --------------------------------------------------------------------------
   npm:
     name: Publish npm
@@ -107,7 +106,7 @@ jobs:
     needs: build-and-test
     permissions:
       contents: read
-      id-token: write  # Required for npm provenance / trusted publishing
+      id-token: write  # Required for npm provenance
 
     steps:
       - name: Checkout code
@@ -132,28 +131,37 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # --------------------------------------------------------------------------
-  # Job 4: Build Standalone Binaries
+  # Job 4: Build Standalone Binaries (using Bun)
   # --------------------------------------------------------------------------
   binaries:
-    name: Build Binaries
-    runs-on: ubuntu-latest
+    name: Build Binary (${{ matrix.os }}-${{ matrix.arch }})
     needs: build-and-test
-
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: linux
             arch: x64
-            target: node20-linux-x64
+            runner: ubuntu-latest
+            bun-target: bun-linux-x64
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            bun-target: bun-linux-arm64
           - os: macos
             arch: x64
-            target: node20-macos-x64
+            runner: macos-13
+            bun-target: bun-darwin-x64
           - os: macos
             arch: arm64
-            target: node20-macos-arm64
+            runner: macos-14
+            bun-target: bun-darwin-arm64
           - os: win
             arch: x64
-            target: node20-win-x64
+            runner: windows-latest
+            bun-target: bun-windows-x64
+
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Checkout code
@@ -165,32 +173,57 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Install dependencies
         run: npm ci
 
       - name: Build TypeScript
         run: npm run build
 
-      - name: Install pkg
-        run: npm install -g pkg
-
       - name: Get version from tag
         id: version
+        shell: bash
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Build binary
+      - name: Build binary with Bun
+        shell: bash
         run: |
-          pkg . --target ${{ matrix.target }} --output dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}
+          mkdir -p dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}
 
-      - name: Add .exe extension for Windows
+          # Compile with Bun
+          if [ "${{ matrix.os }}" = "win" ]; then
+            bun build dist/server.js --compile --target=${{ matrix.bun-target }} --outfile dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}/etc-collector.exe
+          else
+            bun build dist/server.js --compile --target=${{ matrix.bun-target }} --outfile dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}/etc-collector
+          fi
+
+          # Copy native SQLite module
+          if [ -f "node_modules/better-sqlite3/build/Release/better_sqlite3.node" ]; then
+            cp node_modules/better-sqlite3/build/Release/better_sqlite3.node dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}/
+          fi
+
+      - name: Create ZIP (Unix)
+        if: matrix.os != 'win'
+        run: |
+          cd dist
+          zip -r etc-collector-${{ matrix.os }}-${{ matrix.arch }}.zip etc-collector-${{ matrix.os }}-${{ matrix.arch }}/
+
+      - name: Create ZIP (Windows)
         if: matrix.os == 'win'
-        run: mv dist/etc-collector-win-x64 dist/etc-collector-win-x64.exe
+        shell: pwsh
+        run: |
+          cd dist
+          Compress-Archive -Path "etc-collector-${{ matrix.os }}-${{ matrix.arch }}" -DestinationPath "etc-collector-${{ matrix.os }}-${{ matrix.arch }}.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: etc-collector-${{ matrix.os }}-${{ matrix.arch }}
-          path: dist/etc-collector-*
+          path: dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}.zip
 
   # --------------------------------------------------------------------------
   # Job 5: Create GitHub Release
@@ -218,6 +251,12 @@ jobs:
       - name: List binaries
         run: find binaries/ -type f
 
+      - name: Flatten binaries
+        run: |
+          mkdir -p release-files
+          find binaries -name "*.zip" -exec cp {} release-files/ \;
+          ls -la release-files/
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -226,11 +265,11 @@ jobs:
           prerelease: false
           generate_release_notes: true
           files: |
-            binaries/**/*
+            release-files/*.zip
           body: |
             ## Installation
 
-            ### Docker
+            ### Docker (Recommended)
             ```bash
             docker pull ghcr.io/etcsec-com/etc-collector:${{ steps.version.outputs.VERSION }}
             ```
@@ -238,9 +277,20 @@ jobs:
             ### npm
             ```bash
             npm install -g @etcsec-com/etc-collector
+            etc-collector
             ```
 
-            ### Binary
-            Download the appropriate binary for your platform from the assets below.
+            ### Standalone Binary
+            Download the ZIP for your platform, extract it, and run:
+            ```bash
+            # Linux/macOS
+            unzip etc-collector-<platform>.zip
+            ./etc-collector-<platform>/etc-collector
+
+            # Windows
+            # Extract ZIP and run etc-collector.exe
+            ```
+
+            The ZIP contains the binary and required native modules.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

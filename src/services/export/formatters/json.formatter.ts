@@ -126,7 +126,7 @@ export function formatAsJSON(
     findings: options.includeDetails
       ? findings
       : findings.map((f) => {
-          const { affectedEntities: _affectedEntities, ...rest } = f;
+          const { affectedEntities, ...rest } = f;
           return rest;
         }),
     stats: {
