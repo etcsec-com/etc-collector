@@ -6,7 +6,7 @@
 
 import { GraphProvider } from '../../../../src/providers/azure/graph.provider';
 import { GraphClient } from '../../../../src/providers/azure/graph-client';
-import { AzureConfig } from '../../../../src/types/config.types';
+import { AzureProviderConfig } from '../../../../src/types/config.types';
 import {
   AzureAPIError,
   AzureAuthenticationError,
@@ -20,7 +20,7 @@ jest.mock('../../../../src/providers/azure/graph-client');
 describe('GraphProvider', () => {
   let provider: GraphProvider;
   let mockClient: jest.Mocked<GraphClient>;
-  const mockConfig: AzureConfig = {
+  const mockConfig: AzureProviderConfig = {
     tenantId: 'tenant-123',
     clientId: 'client-456',
     clientSecret: 'secret-789',

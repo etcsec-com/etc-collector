@@ -2,6 +2,13 @@
 
 All notable changes to ETC Collector will be documented in this file.
 
+## [1.5.4] - 2025-02-03
+
+### Changed
+- **Modular detector architecture**: Split 14 large detector files (300-700 lines each) into modular directory structure with individual files per detection function
+- **Cleaner imports**: Removed redundant `.detector.ts` bridge files, imports now directly from directories
+- **196 unique security checks** across 14 categories: accounts (32), advanced (48), computers (29), compliance (23), permissions (16), groups (15), kerberos (14), monitoring (13), network (12), adcs (11), attack-paths (11), password (10), gpo (9), trusts (7)
+
 ## [1.5.3] - 2025-02-02
 
 ### Fixed

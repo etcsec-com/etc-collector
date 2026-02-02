@@ -22,21 +22,21 @@
  */
 
 // Password detectors
-export * from './password.detector';
+export * from './password';
 
 // Kerberos detectors
-export * from './kerberos.detector';
+export * from './kerberos';
 
 // Accounts detectors
-export * from './accounts.detector';
+export * from './accounts';
 
 // Groups detectors
-export * from './groups.detector';
+export * from './groups';
 
 // Computers detectors
-export * from './computers.detector';
+export * from './computers';
 
-// Advanced detectors (excluding ESC functions which are in adcs.detector)
+// Advanced detectors (excluding ESC functions which are in adcs)
 export {
   detectShadowCredentials,
   detectRbcdAbuse,
@@ -57,28 +57,28 @@ export {
   detectDcsyncCapable,
   detectNtlmRelayOpportunity,
   detectAdvancedVulnerabilities,
-} from './advanced.detector';
+} from './advanced';
 
 // Permissions detectors
-export * from './permissions.detector';
+export * from './permissions';
 
-// ADCS detectors (ESC1-ESC8) - replaces legacy ESC functions from advanced.detector
-export * from './adcs.detector';
+// ADCS detectors (ESC1-ESC11) - replaces legacy ESC functions from advanced
+export * from './adcs';
 
 // GPO detectors
-export * from './gpo.detector';
+export * from './gpo';
 
 // Trusts detectors
-export * from './trusts.detector';
+export * from './trusts';
 
 // Attack Paths detectors (Phase 2A)
-export * from './attack-paths.detector';
+export * from './attack-paths';
 
 // Monitoring detectors (Phase 2B)
-export * from './monitoring.detector';
+export * from './monitoring';
 
 // Compliance detectors (Phase 3)
-export * from './compliance.detector';
+export * from './compliance';
 
 // Network detectors (Phase 3)
-export * from './network.detector';
+export * from './network';

@@ -12,10 +12,10 @@
  */
 
 import { GraphProvider } from '../../../src/providers/azure/graph.provider';
-import { AzureConfig } from '../../../src/types/config.types';
+import { AzureProviderConfig } from '../../../src/types/config.types';
 
 // Read config from environment variables
-const TEST_AZURE_CONFIG: AzureConfig | null = process.env['TEST_AZURE_TENANT_ID']
+const TEST_AZURE_CONFIG: AzureProviderConfig | null = process.env['TEST_AZURE_TENANT_ID']
   ? {
       tenantId: process.env['TEST_AZURE_TENANT_ID'],
       clientId: process.env['TEST_AZURE_CLIENT_ID'] || '',
@@ -156,7 +156,7 @@ describeIntegration('Azure Provider Basic Integration', () => {
       throw new Error('TEST_AZURE_CONFIG not set');
     }
 
-    const badConfig: AzureConfig = {
+    const badConfig: AzureProviderConfig = {
       ...TEST_AZURE_CONFIG,
       clientSecret: 'wrong-secret',
     };

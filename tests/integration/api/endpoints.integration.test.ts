@@ -28,6 +28,8 @@ import { TokenRepository } from '../../../src/data/repositories/token.repository
 import { CryptoService } from '../../../src/services/auth/crypto.service';
 import { DatabaseManager } from '../../../src/data/database';
 import { MigrationRunner } from '../../../src/data/migrations/migration.runner';
+import { ProvidersController } from '../../../src/api/controllers/providers.controller';
+import { JWTConfig, InfoEndpointsConfig, LDAPConfig, AzureConfig } from '../../../src/types/config.types';
 
 describe('API Endpoints Integration Tests', () => {
   let app: Express;
@@ -59,6 +61,13 @@ describe('API Endpoints Integration Tests', () => {
       advanced: 0,
       permissions: 0,
       config: 0,
+      adcs: 0,
+      gpo: 0,
+      trusts: 0,
+      'attack-paths': 0,
+      monitoring: 0,
+      compliance: 0,
+      network: 0,
       identity: 0,
       applications: 0,
       conditionalAccess: 0,
@@ -106,12 +115,44 @@ describe('API Endpoints Integration Tests', () => {
 
     // Create controllers
     const healthController = new HealthController();
-    const authController = new AuthController(tokenService);
+    const jwtConfig: JWTConfig = {
+      privateKeyPath: testPrivateKeyPath,
+      publicKeyPath: testPublicKeyPath,
+      tokenExpiry: '1h',
+      tokenMaxUses: 0,
+    };
+    const authController = new AuthController(tokenService, jwtConfig);
     const auditController = new AuditController();
     const exportController = new ExportController();
 
+    // Mock LDAP and Azure configs for ProvidersController
+    const mockLdapConfig: LDAPConfig = {
+      url: 'ldap://localhost:389',
+      bindDN: 'cn=admin',
+      bindPassword: 'password',
+      baseDN: 'dc=test,dc=com',
+      tlsVerify: false,
+      timeout: 30000,
+    };
+    const mockAzureConfig: AzureConfig = {
+      enabled: false,
+    };
+    const providersController = new ProvidersController(mockLdapConfig, mockAzureConfig);
+    const infoEndpointsConfig: InfoEndpointsConfig = {
+      tokenInfoEnabled: false,
+      providersInfoEnabled: false,
+    };
+
     // Mount routes
-    const routes = createRoutes(healthController, authController, auditController, exportController);
+    const routes = createRoutes(
+      healthController,
+      authController,
+      auditController,
+      exportController,
+      providersController,
+      tokenService,
+      infoEndpointsConfig
+    );
     app.use(routes);
 
     // Error handler must be last

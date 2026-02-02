@@ -288,7 +288,7 @@ describeIntegration('LDAP Provider Integration Tests', () => {
   describe('Error Handling Tests', () => {
     it('should handle invalid credentials gracefully', async () => {
       const badConfig: LDAPConfig = {
-        ...TEST_LDAP_CONFIG,
+        ...(TEST_LDAP_CONFIG as LDAPConfig),
         bindPassword: 'wrong-password',
       };
 
