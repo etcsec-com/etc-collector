@@ -1,0 +1,1524 @@
+openapi: 3.0.3
+info:
+  title: ETC Collector API
+  description: |
+    API REST pour ETC Collector - Audit de sécurité Active Directory et Azure AD/Entra ID
+
+    ## Authentification
+    Tous les endpoints (sauf `/health`) nécessitent un JWT Bearer token.
+
+    ## Rate Limiting
+    - Endpoints généraux: 100 requêtes/minute
+    - Endpoints d'audit: 10 audits/5 minutes
+
+  version: 1.0.0
+  contact:
+    name: ETC Collector
+    url: https://github.com/etcsec-com/etc-collector
+
+servers:
+  - url: "{serverUrl}"
+    description: Custom server URL
+    variables:
+      serverUrl:
+        default: ""
+        description: "Enter full URL (e.g. https://api.example.com)"
+
+tags:
+  - name: Health
+    description: Health check endpoint
+  - name: Authentication
+    description: JWT token management
+  - name: Providers
+    description: Provider configuration info (requires PROVIDERS_INFO_ENABLED=true)
+  - name: Audit
+    description: Security audit operations (AD & Azure)
+  - name: Jobs
+    description: Async audit job management (polling architecture)
+  - name: Export
+    description: Export audit results (JSON & CSV)
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Check if the API is running and healthy
+      tags:
+        - Health
+      security: []
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /api/v1/auth/token:
+    post:
+      summary: Generate JWT token
+      description: Create a new JWT token with optional usage quotas
+      tags:
+        - Authentication
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Token name/label
+                  example: my-automation-token
+                expiresIn:
+                  type: number
+                  description: Expiration time in seconds
+                  example: 3600
+                  default: 3600
+                maxUses:
+                  type: number
+                  description: Maximum number of uses (0 = unlimited)
+                  example: 10
+                  default: 0
+                metadata:
+                  type: object
+                  description: Optional metadata
+                  additionalProperties: true
+              required:
+                - name
+      responses:
+        '200':
+          description: Token generated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  token:
+                    type: string
+                    example: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+                  jti:
+                    type: string
+                    format: uuid
+                  expiresAt:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+  /api/v1/auth/validate:
+    post:
+      summary: Validate JWT token
+      description: Check if a token is valid without incrementing usage count
+      tags:
+        - Authentication
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Token validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  jti:
+                    type: string
+                    format: uuid
+                  expiresAt:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/auth/revoke:
+    post:
+      summary: Revoke JWT token
+      description: Revoke the current token (identified by JWT)
+      tags:
+        - Authentication
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: Optional revocation reason
+                  example: Token compromised
+      responses:
+        '200':
+          description: Token revoked successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Token revoked successfully
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/auth/tokens:
+    get:
+      summary: List all tokens
+      description: Get list of all active tokens
+      tags:
+        - Authentication
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of tokens
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tokens:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TokenInfo'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/auth/token/info:
+    get:
+      summary: Get current token info
+      description: |
+        Get detailed information about the current token from Authorization header.
+
+        **Requires:** `TOKEN_INFO_ENABLED=true` environment variable.
+
+        Returns token usage statistics and status.
+      tags:
+        - Authentication
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current token information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  token:
+                    type: object
+                    properties:
+                      jti:
+                        type: string
+                        format: uuid
+                      createdAt:
+                        type: string
+                        format: date-time
+                      expiresAt:
+                        type: string
+                        format: date-time
+                      maxUses:
+                        type: integer
+                        example: 10
+                      usageCount:
+                        type: integer
+                        example: 3
+                      remainingUses:
+                        oneOf:
+                          - type: integer
+                          - type: string
+                            enum: [unlimited]
+                        example: 7
+                      revoked:
+                        type: boolean
+                        example: false
+                      revokedAt:
+                        type: string
+                        format: date-time
+                        nullable: true
+                      revokedReason:
+                        type: string
+                        nullable: true
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          description: Endpoint not available (TOKEN_INFO_ENABLED=false)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/providers/info:
+    get:
+      summary: Get providers configuration
+      description: |
+        Get information about all configured providers.
+
+        **Requires:** `PROVIDERS_INFO_ENABLED=true` environment variable.
+
+        Returns non-sensitive configuration details for each provider (LDAP/AD, Azure).
+      tags:
+        - Providers
+      security: []
+      responses:
+        '200':
+          description: Providers information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  providers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProviderInfo'
+                  summary:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        example: 2
+                      enabled:
+                        type: integer
+                        example: 1
+                      configured:
+                        type: integer
+                        example: 1
+        '404':
+          description: Endpoint not available (PROVIDERS_INFO_ENABLED=false)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/audit/ad:
+    post:
+      summary: Run AD audit
+      description: |
+        Execute security audit on Active Directory domain (PRD FR55 structure).
+
+        **Async Mode:** Add `?async=true` to run the audit asynchronously.
+        Returns a job_id that can be polled via `GET /api/v1/audit/jobs/{job_id}`.
+
+        **Sync Mode (default):** Waits for audit completion and returns full results.
+      tags:
+        - Audit
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: async
+          in: query
+          description: Run audit asynchronously (returns job_id for polling)
+          required: false
+          schema:
+            type: boolean
+            default: false
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                includeDetails:
+                  type: boolean
+                  description: Include affected entity names in findings
+                  default: false
+                maxUsers:
+                  type: integer
+                  minimum: 1
+                  description: Maximum number of users to audit
+                maxGroups:
+                  type: integer
+                  minimum: 1
+                  description: Maximum number of groups to audit
+                maxComputers:
+                  type: integer
+                  minimum: 1
+                  description: Maximum number of computers to audit
+      responses:
+        '200':
+          description: Audit completed successfully (sync mode)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ADAuditResponse'
+        '202':
+          description: Audit started (async mode) - poll job status via /api/v1/audit/jobs/{job_id}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobProgress'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '429':
+          $ref: '#/components/responses/AuditRateLimitError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/audit/ad/status:
+    get:
+      summary: Test LDAP connection
+      description: Check if LDAP connection to Active Directory is working
+      tags:
+        - Audit
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Connection test result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                    example: Successfully connected to LDAP server
+                  details:
+                    type: object
+                    properties:
+                      url:
+                        type: string
+                      baseDN:
+                        type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/audit/azure:
+    post:
+      summary: Run Azure audit
+      description: Execute security audit on Azure AD/Entra ID tenant
+      tags:
+        - Audit
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                includeDetails:
+                  type: boolean
+                  description: Include affected entity names in findings
+                  default: false
+                maxUsers:
+                  type: integer
+                  minimum: 1
+                  description: Maximum number of users to audit
+                maxGroups:
+                  type: integer
+                  minimum: 1
+                  description: Maximum number of groups to audit
+                maxApps:
+                  type: integer
+                  minimum: 1
+                  description: Maximum number of applications to audit
+      responses:
+        '200':
+          description: Audit completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/AuditResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '429':
+          $ref: '#/components/responses/AuditRateLimitError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/audit/azure/status:
+    get:
+      summary: Test Microsoft Graph connection
+      description: Check if Microsoft Graph API connection is working
+      tags:
+        - Audit
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Connection test result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                    example: Successfully connected to Microsoft Graph API
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/audit/jobs:
+    get:
+      summary: List all jobs
+      description: |
+        Get list of all audit jobs.
+
+        Supports filtering by status with `?status=` query parameter.
+      tags:
+        - Jobs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          description: Filter jobs by status
+          required: false
+          schema:
+            type: string
+            enum: [pending, running, completed, failed]
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      jobs:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/JobSummary'
+                      total:
+                        type: integer
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/audit/jobs/{jobId}:
+    get:
+      summary: Get job status
+      description: |
+        Get current status and progress of an async audit job.
+
+        **Progress Tracking:** The response includes progress percentage (0-100)
+        and detailed step-by-step progress with counts and findings.
+
+        **Completed Jobs:** When status is "completed", the full audit result
+        is included in the response (same structure as sync audit).
+      tags:
+        - Jobs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          description: Job ID returned from async audit request
+          schema:
+            type: string
+            example: ad-audit-1704067200000-abc12345
+      responses:
+        '200':
+          description: Job status and progress (or full result if completed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error:
+                  code: JOB_NOT_FOUND
+                  message: Job ad-audit-xxx not found
+
+    delete:
+      summary: Delete job
+      description: Delete/cancel an audit job
+      tags:
+        - Jobs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          description: Job ID to delete
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Job ad-audit-xxx deleted
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/export/ad:
+    post:
+      summary: Export AD audit results
+      description: Export Active Directory audit results in JSON or CSV format
+      tags:
+        - Export
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportRequest'
+      responses:
+        '200':
+          description: Export file
+          content:
+            application/json:
+              schema:
+                description: JSON export with full audit structure
+            text/csv:
+              schema:
+                type: string
+                description: CSV export with findings table
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="audit-ad-EXAMPLE-2026-01-12T10-30-00Z.json"
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/export/azure:
+    post:
+      summary: Export Azure audit results
+      description: Export Azure AD/Entra ID audit results in JSON or CSV format
+      tags:
+        - Export
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportRequest'
+      responses:
+        '200':
+          description: Export file
+          content:
+            application/json:
+              schema:
+                description: JSON export with full audit structure
+            text/csv:
+              schema:
+                type: string
+                description: CSV export with findings table
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="audit-azure-tenant-123-2026-01-12T10-30-00Z.csv"
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /api/v1/auth/token
+
+  schemas:
+    TokenInfo:
+      type: object
+      properties:
+        jti:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        max_uses:
+          type: integer
+        used_count:
+          type: integer
+        remaining_uses:
+          type: integer
+        revoked:
+          type: boolean
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+        revoked_reason:
+          type: string
+          nullable: true
+
+    ProviderInfo:
+      type: object
+      description: Provider configuration information (non-sensitive)
+      properties:
+        name:
+          type: string
+          description: Provider identifier
+          enum: [active-directory, azure-entra-id]
+          example: active-directory
+        enabled:
+          type: boolean
+          description: Whether the provider is enabled and configured
+          example: true
+        status:
+          type: string
+          description: Configuration status
+          enum: [configured, not_configured, partial]
+          example: configured
+        details:
+          type: object
+          description: Provider-specific configuration details (non-sensitive)
+          additionalProperties: true
+
+    ADProviderDetails:
+      type: object
+      description: Active Directory provider details
+      properties:
+        server:
+          type: string
+          example: ldaps://dc.example.com:636
+        baseDN:
+          type: string
+          example: DC=example,DC=com
+        tlsVerify:
+          type: boolean
+          example: true
+        timeout:
+          type: integer
+          example: 30000
+        hasCACert:
+          type: boolean
+          example: true
+
+    AzureProviderDetails:
+      type: object
+      description: Azure Entra ID provider details
+      properties:
+        tenantName:
+          type: string
+          description: Tenant display name (from AZURE_TENANT_NAME env var or Graph API)
+          example: Groupe IJNEXT
+        tenantId:
+          type: string
+          description: Azure tenant ID (GUID)
+          example: 6fb52d35-3c45-4ca9-93b3-5bc3eadc5828
+        verifiedDomains:
+          type: array
+          items:
+            type: string
+          description: List of verified domains (from Graph API)
+          example: [example.com, example.onmicrosoft.com]
+        clientId:
+          type: string
+          description: Application client ID (masked)
+          example: 0ba0...9e21
+        hasClientSecret:
+          type: boolean
+          description: Whether client secret is configured
+          example: true
+
+    ADAuditResponse:
+      type: object
+      description: AD Audit response (PRD FR55 structure)
+      properties:
+        success:
+          type: boolean
+          example: true
+        provider:
+          type: string
+          enum: [active-directory]
+          example: active-directory
+        audit:
+          type: object
+          properties:
+            metadata:
+              $ref: '#/components/schemas/AuditMetadata'
+            summary:
+              $ref: '#/components/schemas/AuditSummary'
+            security:
+              $ref: '#/components/schemas/SecuritySection'
+            accounts:
+              $ref: '#/components/schemas/AccountsSection'
+            groups:
+              $ref: '#/components/schemas/FindingsSection'
+            computers:
+              $ref: '#/components/schemas/FindingsSection'
+            permissions:
+              $ref: '#/components/schemas/FindingsSection'
+            temporal:
+              $ref: '#/components/schemas/FindingsSection'
+            extendedConfig:
+              $ref: '#/components/schemas/FindingsSection'
+            adcs:
+              $ref: '#/components/schemas/ADCSSection'
+            gpoSecurity:
+              $ref: '#/components/schemas/GPOSecuritySection'
+            trustsAnalysis:
+              $ref: '#/components/schemas/TrustsAnalysisSection'
+            domainConfig:
+              $ref: '#/components/schemas/DomainConfig'
+
+    AuditMetadata:
+      type: object
+      properties:
+        provider:
+          type: string
+          example: active-directory
+        domain:
+          type: object
+          properties:
+            name:
+              type: string
+              example: example.com
+            baseDN:
+              type: string
+              example: DC=example,DC=com
+            ldapUrl:
+              type: string
+              example: ldaps://dc.example.com:636
+        options:
+          type: object
+          properties:
+            includeDetails:
+              type: boolean
+            includeComputers:
+              type: boolean
+            includeConfig:
+              type: boolean
+        execution:
+          type: object
+          properties:
+            timestamp:
+              type: string
+              format: date-time
+            duration:
+              type: string
+              example: "3.87s"
+
+    AuditSummary:
+      type: object
+      properties:
+        objects:
+          type: object
+          properties:
+            users:
+              type: integer
+            groups:
+              type: integer
+            ous:
+              type: integer
+            computers:
+              type: integer
+        risk:
+          type: object
+          properties:
+            score:
+              type: number
+              minimum: 0
+              maximum: 100
+            rating:
+              type: string
+              enum: [excellent, good, fair, poor, critical]
+            findings:
+              type: object
+              properties:
+                critical:
+                  type: integer
+                high:
+                  type: integer
+                medium:
+                  type: integer
+                low:
+                  type: integer
+                total:
+                  type: integer
+
+    SecuritySection:
+      type: object
+      properties:
+        passwords:
+          $ref: '#/components/schemas/FindingsSection'
+        kerberos:
+          $ref: '#/components/schemas/FindingsSection'
+        advanced:
+          $ref: '#/components/schemas/FindingsSection'
+
+    AccountsSection:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/FindingsSection'
+        privileged:
+          $ref: '#/components/schemas/FindingsSection'
+        service:
+          $ref: '#/components/schemas/FindingsSection'
+        dangerous:
+          $ref: '#/components/schemas/FindingsSection'
+
+    FindingsSection:
+      type: object
+      properties:
+        total:
+          type: integer
+          description: Total count of affected entities
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Finding'
+
+    ADCSSection:
+      type: object
+      description: AD Certificate Services (ADCS) security findings (ESC1-ESC8)
+      properties:
+        total:
+          type: integer
+          description: Total count of ADCS vulnerabilities
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Finding'
+          description: |
+            ADCS vulnerability findings including:
+            - ESC1_VULNERABLE_TEMPLATE: Template allows enrollee to supply SAN + has client auth
+            - ESC2_ANY_PURPOSE: Template has "Any Purpose" EKU
+            - ESC3_ENROLLMENT_AGENT: Template allows enrollment agent certificate
+            - ESC4_VULNERABLE_TEMPLATE_ACL: Non-admin can modify vulnerable template
+            - ESC5_PKI_OBJECT_ACL: Vulnerable PKI object ACLs
+            - ESC6_EDITF_FLAG: CA allows requestor-specified SAN
+            - ESC7_CA_VULNERABLE_ACL: Non-admin can manage CA
+            - ESC8_HTTP_ENROLLMENT: HTTP web enrollment (NTLM relay risk)
+
+    GPOSecuritySection:
+      type: object
+      description: Group Policy Object (GPO) security findings
+      properties:
+        total:
+          type: integer
+          description: Total count of GPO security issues
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Finding'
+          description: |
+            GPO security findings including:
+            - GPO_DANGEROUS_PERMISSIONS: Non-admin can edit GPO linked to sensitive OUs
+            - GPO_WEAK_PASSWORD_POLICY: GPO with password length < 12 characters
+            - GPO_LAPS_NOT_DEPLOYED: No LAPS deployment GPO found
+            - GPO_DISABLED_BUT_LINKED: GPO disabled but still linked
+            - GPO_UNLINKED: GPO exists but not linked anywhere
+
+    TrustsAnalysisSection:
+      type: object
+      description: Domain trust relationship security analysis
+      properties:
+        total:
+          type: integer
+          description: Total count of trust security issues
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Finding'
+          description: |
+            Trust security findings including:
+            - TRUST_SID_FILTERING_DISABLED: SID history attacks possible
+            - TRUST_EXTERNAL_NO_SELECTIVE_AUTH: External trust without selective authentication
+            - TRUST_BIDIRECTIONAL: Two-way trust enables lateral movement
+            - TRUST_FOREST_TRANSITIVE: Transitive forest trust increases attack surface
+
+    DomainConfig:
+      type: object
+      description: AD Domain configuration
+      properties:
+        passwordPolicy:
+          type: object
+          properties:
+            minPasswordLength:
+              type: integer
+            passwordHistoryLength:
+              type: integer
+            maxPasswordAge:
+              type: string
+              example: "42 days"
+            minPasswordAge:
+              type: string
+              example: "1 day"
+            lockoutThreshold:
+              type: integer
+            lockoutDuration:
+              type: string
+              example: "30 min"
+            lockoutObservationWindow:
+              type: string
+              example: "30 min"
+            complexity:
+              type: boolean
+        kerberosPolicy:
+          type: object
+          description: |
+            Kerberos policy settings from Default Domain Policy GPO.
+            Note: Requires SMB_ENABLED=true to read actual values from SYSVOL.
+            If SMB is disabled, values will be "N/A (GPO)".
+          properties:
+            maxTicketAge:
+              type: string
+              description: Maximum lifetime for service ticket
+              example: "10 hours"
+            maxRenewAge:
+              type: string
+              description: Maximum lifetime for ticket renewal
+              example: "7 days"
+            maxServiceAge:
+              type: string
+              description: Maximum lifetime for service ticket
+              example: "600 min"
+            maxClockSkew:
+              type: string
+              description: Maximum tolerance for computer clock synchronization
+              example: "5 min"
+            ticketValidateClient:
+              type: boolean
+              description: Enforce user logon restrictions
+              example: true
+        domainInfo:
+          type: object
+          properties:
+            forestName:
+              type: string
+            domainName:
+              type: string
+            domainMode:
+              type: string
+              example: Windows2016Domain
+            forestMode:
+              type: string
+              example: Windows2016Forest
+            domainControllers:
+              type: array
+              items:
+                type: string
+            fsmoRoles:
+              type: object
+              properties:
+                schemaMaster:
+                  type: string
+                domainNamingMaster:
+                  type: string
+                pdcEmulator:
+                  type: string
+                ridMaster:
+                  type: string
+                infrastructureMaster:
+                  type: string
+        trusts:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              direction:
+                type: string
+                enum: [inbound, outbound, bidirectional]
+              type:
+                type: string
+                enum: [forest, external, realm, shortcut]
+              transitive:
+                type: boolean
+        gpoSummary:
+          type: object
+          properties:
+            totalGPOs:
+              type: integer
+            linkedGPOs:
+              type: integer
+
+    AuditResult:
+      type: object
+      properties:
+        score:
+          $ref: '#/components/schemas/SecurityScore'
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Finding'
+        stats:
+          type: object
+          properties:
+            totalUsers:
+              type: integer
+            totalGroups:
+              type: integer
+            totalComputers:
+              type: integer
+            totalApps:
+              type: integer
+            totalPolicies:
+              type: integer
+            totalFindings:
+              type: integer
+            executionTimeMs:
+              type: integer
+        timestamp:
+          type: string
+          format: date-time
+
+    SecurityScore:
+      type: object
+      properties:
+        score:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+          example: 75.5
+        rating:
+          type: string
+          enum: [excellent, good, fair, poor, critical]
+          example: good
+        weightedPoints:
+          type: number
+        totalUsers:
+          type: integer
+        findings:
+          type: object
+          properties:
+            critical:
+              type: integer
+            high:
+              type: integer
+            medium:
+              type: integer
+            low:
+              type: integer
+            total:
+              type: integer
+        categories:
+          type: object
+          additionalProperties:
+            type: integer
+
+    Finding:
+      type: object
+      properties:
+        type:
+          type: string
+          example: PASSWORD_NOT_REQUIRED
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        category:
+          type: string
+          enum: [passwords, kerberos, accounts, groups, computers, advanced, permissions, config, adcs, gpo, trusts, identity, applications, conditionalAccess, privilegedAccess]
+        title:
+          type: string
+          example: Password Not Required
+        description:
+          type: string
+          example: User account does not require a password
+        count:
+          type: integer
+          example: 5
+        affectedEntities:
+          type: array
+          items:
+            type: string
+          description: Only included when includeDetails=true
+
+    ExportRequest:
+      type: object
+      required:
+        - auditResult
+        - format
+      properties:
+        auditResult:
+          $ref: '#/components/schemas/AuditResult'
+        format:
+          type: string
+          enum: [json, csv]
+        domain:
+          type: string
+          description: Domain name (for AD) or tenant ID (for Azure)
+        tenantId:
+          type: string
+          description: Azure tenant ID (for Azure exports)
+        includeDetails:
+          type: boolean
+          description: Include affectedEntities in JSON export
+          default: false
+        includeAffectedEntities:
+          type: boolean
+          description: Include affected entities column in CSV export
+          default: false
+        delimiter:
+          type: string
+          minLength: 1
+          maxLength: 1
+          description: CSV delimiter character
+          default: ","
+
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+
+    JobProgress:
+      type: object
+      description: Job progress returned when starting async audit
+      properties:
+        job_id:
+          type: string
+          example: ad-audit-1704067200000-abc12345
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+          example: pending
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 0
+        current_step:
+          type: string
+          example: CONNECTING
+        description:
+          type: string
+          example: Job created, waiting to start
+        started_at:
+          type: string
+          format: date-time
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobStep'
+
+    JobSummary:
+      type: object
+      description: Summary of a job (for listing)
+      properties:
+        job_id:
+          type: string
+          example: ad-audit-1704067200000-abc12345
+        type:
+          type: string
+          enum: [ad-audit, azure-audit]
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        current_step:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+
+    JobStatusResponse:
+      type: object
+      description: Full job status response
+      properties:
+        job_id:
+          type: string
+          example: ad-audit-1704067200000-abc12345
+        type:
+          type: string
+          enum: [ad-audit, azure-audit]
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Overall progress percentage
+        current_step:
+          type: string
+          description: Current step being executed
+          example: FETCHING_USERS
+        description:
+          type: string
+          description: Human-readable description of current activity
+        started_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        failed_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+        steps:
+          type: array
+          description: Detailed progress for each step
+          items:
+            $ref: '#/components/schemas/JobStep'
+        error:
+          $ref: '#/components/schemas/JobError'
+        result:
+          description: Full audit result (only when status=completed)
+          $ref: '#/components/schemas/ADAuditResponse'
+
+    JobStep:
+      type: object
+      description: Progress information for a single audit step
+      properties:
+        name:
+          type: string
+          description: Step identifier
+          enum:
+            - CONNECTING
+            - FETCHING_USERS
+            - FETCHING_GROUPS
+            - FETCHING_COMPUTERS
+            - FETCHING_DOMAIN
+            - FETCHING_ACLS
+            - DETECTING_PASSWORDS
+            - DETECTING_KERBEROS
+            - DETECTING_ACCOUNTS
+            - DETECTING_GROUPS
+            - DETECTING_COMPUTERS
+            - DETECTING_ADVANCED
+            - DETECTING_PERMISSIONS
+            - CALCULATING_SCORE
+            - FETCHING_CONFIG
+            - FORMATTING
+            - COMPLETED
+          example: FETCHING_USERS
+        status:
+          type: string
+          enum: [pending, running, completed, failed, skipped]
+        description:
+          type: string
+          example: Fetching users from Active Directory
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Step progress percentage
+        count:
+          type: integer
+          description: Number of items processed (users, groups, etc.)
+          example: 150
+        findings:
+          type: integer
+          description: Number of findings detected in this step
+          example: 5
+        error:
+          type: string
+          description: Error message if step failed
+
+    JobError:
+      type: object
+      description: Error details for failed job
+      properties:
+        code:
+          type: string
+          example: LDAP_CONNECTION_FAILED
+        message:
+          type: string
+          example: Failed to connect to LDAP server
+        step:
+          type: string
+          example: CONNECTING
+        details:
+          type: object
+          additionalProperties: true
+
+  responses:
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            error:
+              code: VALIDATION_ERROR
+              message: Request validation failed
+              details:
+                - field: maxUsers
+                  message: Expected positive integer
+
+    UnauthorizedError:
+      description: Authentication required or token invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            error:
+              code: UNAUTHORIZED
+              message: Invalid or missing authentication token
+
+    RateLimitError:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            error:
+              code: RATE_LIMIT_EXCEEDED
+              message: Too many requests, please try again later
+
+    AuditRateLimitError:
+      description: Audit rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            error:
+              code: AUDIT_RATE_LIMIT_EXCEEDED
+              message: Too many audit requests, please try again later
+
+    ServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            error:
+              code: INTERNAL_ERROR
+              message: An unexpected error occurred
+
+security:
+  - bearerAuth: []
