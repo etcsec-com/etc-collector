@@ -41,3 +41,26 @@ certs/
 tmp/
 temp/
 *.tmp
+
+# ===========================================
+# PRIVATE - Internal files (not for public repo)
+# ===========================================
+
+# Private documentation and internal files
+.private/
+
+# BMAD tooling
+.bmad-core/
+web-bundles/
+
+# Claude Code internal
+.claude/commands/
+.claude/skills/
+.claude/scripts/
+.claude/settings.local.json
+
+# Playwright MCP screenshots
+.playwright-mcp/
+
+# API tokens
+docs/api/token.txt
