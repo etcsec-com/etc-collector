@@ -2,6 +2,11 @@
 
 All notable changes to ETC Collector will be documented in this file.
 
+## [1.5.5] - 2025-02-03
+
+### Fixed
+- Release rebuild (v1.5.4 workflow failed on npm publish)
+
 ## [1.5.4] - 2025-02-03
 
 ### Changed
