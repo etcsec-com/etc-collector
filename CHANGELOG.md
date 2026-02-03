@@ -2,6 +2,15 @@
 
 All notable changes to ETC Collector will be documented in this file.
 
+## [1.5.7] - 2025-02-03
+
+### Fixed
+- **Windows binary crash**: Created separate SaaS-only entry point (`server-saas.ts`) for Windows build that completely excludes all database and native module code. Windows build now uses this lightweight entry point.
+
+### Note
+- Windows binary only supports SaaS mode (--enroll, --daemon, --status, --unenroll)
+- Standalone mode (HTTP server) requires Linux/macOS
+
 ## [1.5.6] - 2025-02-03
 
 ### Fixed

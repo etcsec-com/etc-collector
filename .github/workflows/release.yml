@@ -196,10 +196,11 @@ jobs:
           mkdir -p dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}
 
           # Compile with Bun
-          # Windows: exclude better-sqlite3 (native module incompatible with Bun on Windows)
-          # Other platforms: include it for standalone mode
+          # Windows: use SaaS-only entry point (no native modules, no database)
+          # Other platforms: full build with standalone mode support
           if [ "${{ matrix.os }}" = "win" ]; then
-            bun build dist/server.js --compile --target=${{ matrix.bun-target }} --external better-sqlite3 --outfile dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}/etc-collector.exe
+            # Windows SaaS-only build - excludes all database/native module code
+            bun build dist/server-saas.js --compile --target=${{ matrix.bun-target }} --outfile dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}/etc-collector.exe
           else
             bun build dist/server.js --compile --target=${{ matrix.bun-target }} --outfile dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}/etc-collector
             # Copy native SQLite module for non-Windows platforms
