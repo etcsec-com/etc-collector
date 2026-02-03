@@ -1,6 +1,6 @@
 {
   "name": "@etcsec-com/etc-collector",
-  "version": "1.5.7",
+  "version": "1.5.8",
   "description": "Active Directory and Azure AD security auditing tool",
   "main": "dist/server.js",
   "bin": {
@@ -36,6 +36,14 @@
     "url": "https://github.com/etcsec-com/etc-collector/issues"
   },
   "homepage": "https://github.com/etcsec-com/etc-collector#readme",
+  "pkg": {
+    "scripts": "dist/**/*.js",
+    "assets": "dist/**/*",
+    "targets": [
+      "node18-win-x64"
+    ],
+    "outputPath": "dist"
+  },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.19",
@@ -52,11 +60,13 @@
     "@typescript-eslint/eslint-plugin": "^8.52.0",
     "@typescript-eslint/parser": "^8.52.0",
     "@vercel/ncc": "^0.38.4",
+    "@yao-pkg/pkg": "^6.12.0",
     "esbuild": "^0.27.2",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
     "jest": "^30.2.0",
+    "pkg": "^5.8.1",
     "prettier": "^3.7.4",
     "supertest": "^7.2.2",
     "ts-jest": "^29.4.6",

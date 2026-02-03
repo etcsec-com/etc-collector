@@ -190,20 +190,22 @@ jobs:
         shell: bash
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Build binary with Bun
+      - name: Build binary
         shell: bash
         run: |
           mkdir -p dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}
 
-          # Compile with Bun
-          # Windows: use SaaS-only entry point (no native modules, no database)
-          # Other platforms: full build with standalone mode support
           if [ "${{ matrix.os }}" = "win" ]; then
-            # Windows SaaS-only build - excludes all database/native module code
-            bun build dist/server-saas.js --compile --target=${{ matrix.bun-target }} --outfile dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}/etc-collector.exe
+            # Windows: use @yao-pkg/pkg (Node.js) for VM compatibility (QEMU, Hyper-V, VMware, etc.)
+            # pkg works on all x64 CPUs, unlike Bun which requires AVX2 instructions
+            npx @yao-pkg/pkg dist/server-saas.js \
+              --targets node20-win-x64 \
+              --output dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}/etc-collector.exe \
+              --compress GZip
           else
+            # Linux/macOS: use Bun for better performance
             bun build dist/server.js --compile --target=${{ matrix.bun-target }} --outfile dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}/etc-collector
-            # Copy native SQLite module for non-Windows platforms
+            # Copy native SQLite module for standalone mode
             if [ -f "node_modules/better-sqlite3/build/Release/better_sqlite3.node" ]; then
               cp node_modules/better-sqlite3/build/Release/better_sqlite3.node dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}/
             fi

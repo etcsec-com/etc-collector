@@ -2,6 +2,19 @@
 
 All notable changes to ETC Collector will be documented in this file.
 
+## [1.5.8] - 2025-02-03
+
+### Fixed
+- **Windows VM compatibility**: Replaced Bun with `@yao-pkg/pkg` (Node.js) for Windows builds. Bun requires AVX2 CPU instructions not available on QEMU/Hyper-V/VMware virtual machines. pkg-based builds work on all x64 CPUs.
+
+### Changed
+- Windows binary now uses Node.js 20 runtime via pkg (58 MB vs 117 MB with Bun)
+- Linux/macOS continue to use Bun for better performance
+
+### Note
+- Windows binary only supports SaaS mode (--enroll, --daemon, --status, --unenroll)
+- Standalone mode (HTTP server) requires Linux/macOS
+
 ## [1.5.7] - 2025-02-03
 
 ### Fixed
