@@ -2,6 +2,11 @@
 
 All notable changes to ETC Collector will be documented in this file.
 
+## [1.5.6] - 2025-02-03
+
+### Fixed
+- **Windows binary crash**: Exclude `better-sqlite3` native module from Windows build with `--external` flag. The module is incompatible with Bun runtime on Windows.
+
 ## [1.5.5] - 2025-02-03
 
 ### Fixed

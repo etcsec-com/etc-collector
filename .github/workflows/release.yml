@@ -196,15 +196,16 @@ jobs:
           mkdir -p dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}
 
           # Compile with Bun
+          # Windows: exclude better-sqlite3 (native module incompatible with Bun on Windows)
+          # Other platforms: include it for standalone mode
           if [ "${{ matrix.os }}" = "win" ]; then
-            bun build dist/server.js --compile --target=${{ matrix.bun-target }} --outfile dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}/etc-collector.exe
+            bun build dist/server.js --compile --target=${{ matrix.bun-target }} --external better-sqlite3 --outfile dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}/etc-collector.exe
           else
             bun build dist/server.js --compile --target=${{ matrix.bun-target }} --outfile dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}/etc-collector
-          fi
-
-          # Copy native SQLite module
-          if [ -f "node_modules/better-sqlite3/build/Release/better_sqlite3.node" ]; then
-            cp node_modules/better-sqlite3/build/Release/better_sqlite3.node dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}/
+            # Copy native SQLite module for non-Windows platforms
+            if [ -f "node_modules/better-sqlite3/build/Release/better_sqlite3.node" ]; then
+              cp node_modules/better-sqlite3/build/Release/better_sqlite3.node dist/etc-collector-${{ matrix.os }}-${{ matrix.arch }}/
+            fi
           fi
 
       - name: Create ZIP (Unix)
