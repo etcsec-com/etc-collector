@@ -1,6 +1,6 @@
 {
   "name": "@etcsec-com/etc-collector",
-  "version": "1.5.8",
+  "version": "1.5.9",
   "description": "Active Directory and Azure AD security auditing tool",
   "main": "dist/server.js",
   "bin": {

@@ -2,6 +2,14 @@
 
 All notable changes to ETC Collector will be documented in this file.
 
+## [1.5.9] - 2025-02-04
+
+### Fixed
+- **Windows service working directory**: Fixed credential store path resolution to use executable directory instead of current working directory. This allows the Windows service to find credentials regardless of the working directory it's started from.
+
+### Note
+- Windows service creation requires a service wrapper like NSSM (Non-Sucking Service Manager) since the collector runs as a console application.
+
 ## [1.5.8] - 2025-02-03
 
 ### Fixed

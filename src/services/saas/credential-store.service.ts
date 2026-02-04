@@ -18,9 +18,37 @@ export class CredentialStoreService {
   private readonly credentialsPath: string;
 
   constructor(dataDir?: string) {
-    // Default to ./data directory
-    this.dataDir = dataDir || path.join(process.cwd(), 'data');
+    // Default to data directory relative to executable (not cwd)
+    // This ensures the service works correctly when run from any directory
+    // For pkg binaries: use executable directory
+    // For development: use process.cwd()
+    const baseDir = this.getBaseDirectory();
+    this.dataDir = dataDir || path.join(baseDir, 'data');
     this.credentialsPath = path.join(this.dataDir, CREDENTIALS_FILE);
+  }
+
+  /**
+   * Get the base directory for data storage
+   * Uses executable directory for packaged binaries, cwd for development
+   */
+  private getBaseDirectory(): string {
+    // Check if running as a packaged executable (pkg or bun)
+    // pkg sets process.pkg, bun compiled binaries have specific execPath
+    const execDir = path.dirname(process.execPath);
+    const execName = path.basename(process.execPath).toLowerCase();
+
+    // If executable name contains 'etc-collector' or 'node'/'bun' is not in the path,
+    // we're likely running as a packaged binary
+    const isPackaged =
+      execName.includes('etc-collector') ||
+      (!execName.includes('node') && !execName.includes('bun') && !execName.includes('ts-node'));
+
+    if (isPackaged) {
+      return execDir;
+    }
+
+    // Development mode - use current working directory
+    return process.cwd();
   }
 
   /**
