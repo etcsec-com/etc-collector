@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2025-02-05
+
+### Added
+- GPO Links collection for GPO-based detectors
+- GPO ACLs collection for permission analysis
+- ACL collection for all permission-based detectors
+
+### Fixed
+- JSON response structure now matches TypeScript implementation
+- Detector IDs aligned with TypeScript for SaaS compatibility
+- Duplicate detector registration causing panic on startup
+- Regex compatibility (removed unsupported Perl lookaheads)
+- LDAP connection management (keep-alive for server mode)
+
+### Changed
+- Improved detector loading via init() registration
+- Better error handling in LDAP provider
+
 ## [2.0.0] - 2025-02-05
 
 ### Changed

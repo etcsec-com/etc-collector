@@ -45,6 +45,7 @@ func (d *ESC8HttpEnrollmentDetector) Detect(ctx context.Context, data *audit.Det
 	return []types.Finding{finding}
 }
 
-func init() {
-	audit.MustRegister(NewESC8HttpEnrollmentDetector())
-}
+// init() commented out - duplicate of adcs/esc8.go
+// func init() {
+// 	audit.MustRegister(NewESC8HttpEnrollmentDetector())
+// }

@@ -61,6 +61,7 @@ func (d *ESC1VulnerableTemplateDetector) Detect(ctx context.Context, data *audit
 	return []types.Finding{finding}
 }
 
-func init() {
-	audit.MustRegister(NewESC1VulnerableTemplateDetector())
-}
+// init() commented out - duplicate of adcs/esc1.go
+// func init() {
+// 	audit.MustRegister(NewESC1VulnerableTemplateDetector())
+// }

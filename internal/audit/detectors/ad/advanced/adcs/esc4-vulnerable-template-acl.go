@@ -57,6 +57,7 @@ func (d *ESC4VulnerableTemplateACLDetector) Detect(ctx context.Context, data *au
 	return []types.Finding{finding}
 }
 
-func init() {
-	audit.MustRegister(NewESC4VulnerableTemplateACLDetector())
-}
+// init() commented out - duplicate of adcs/esc4.go
+// func init() {
+// 	audit.MustRegister(NewESC4VulnerableTemplateACLDetector())
+// }

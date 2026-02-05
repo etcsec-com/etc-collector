@@ -1,7 +1,5 @@
 # Build stage
-FROM golang:1.24-alpine AS builder
-
-ARG VERSION=dev
+FROM golang:1.22-alpine AS builder
 
 # Install certificates and git
 RUN apk add --no-cache ca-certificates git
@@ -16,9 +14,7 @@ RUN go mod download
 COPY . .
 
 # Build the binary
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
-    -ldflags="-w -s -X main.Version=${VERSION}" \
-    -o etc-collector ./cmd/etc-collector
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o etc-collector ./cmd/etc-collector
 
 # Runtime stage
 FROM alpine:3.19

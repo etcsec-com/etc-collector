@@ -33,7 +33,7 @@ var obsoleteOSPatterns = []ObsoleteOSPattern{
 		OSName:   "Windows Server 2003",
 	},
 	{
-		Pattern:  regexp.MustCompile(`(?i)Server 2008(?!\s*R2)`), // 2008 but not 2008 R2
+		Pattern:  regexp.MustCompile(`(?i)Server 2008`), // 2008 detection - R2 exclusion handled in code
 		TypeID:   "COMPUTER_OS_OBSOLETE_2008",
 		Severity: types.SeverityHigh,
 		OSName:   "Windows Server 2008",
@@ -181,12 +181,12 @@ func NewObsoleteOS2008Detector() *ObsoleteOS2008Detector {
 // Detect executes the detection
 func (d *ObsoleteOS2008Detector) Detect(ctx context.Context, data *audit.DetectorData) []types.Finding {
 	// Match Server 2008 but not Server 2008 R2
-	pattern := regexp.MustCompile(`(?i)Server 2008(?!\s*R2)`)
 	var affected []types.Computer
 
 	for _, c := range data.Computers {
-		os := strings.ToLower(c.OperatingSystem)
-		if os != "" && pattern.MatchString(c.OperatingSystem) {
+		osLower := strings.ToLower(c.OperatingSystem)
+		// Check for Server 2008 but exclude R2
+		if osLower != "" && strings.Contains(osLower, "server 2008") && !strings.Contains(osLower, "r2") {
 			affected = append(affected, c)
 		}
 	}

@@ -6,18 +6,26 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/etcsec-com/etc-collector/internal/api"
+	"github.com/etcsec-com/etc-collector/internal/config"
+	"github.com/etcsec-com/etc-collector/internal/providers"
+	"github.com/etcsec-com/etc-collector/internal/providers/ldap"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	// Import detectors to register them via init()
+	_ "github.com/etcsec-com/etc-collector/internal/audit/detectors/ad"
 )
 
 var (
-	serverPort     int
-	ldapURL        string
-	ldapBindDN     string
-	ldapBindPass   string
-	ldapBaseDN     string
-	ldapTLSVerify  bool
+	serverPort    int
+	ldapURL       string
+	ldapBindDN    string
+	ldapBindPass  string
+	ldapBaseDN    string
+	ldapTLSVerify bool
 )
 
 var serverCmd = &cobra.Command{
@@ -43,7 +51,7 @@ func init() {
 	serverCmd.Flags().BoolVar(&ldapTLSVerify, "ldap-tls-verify", true, "Verify LDAP TLS certificates")
 
 	// Bind to viper
-	viper.BindPFlag("api.port", serverCmd.Flags().Lookup("port"))
+	viper.BindPFlag("server.port", serverCmd.Flags().Lookup("port"))
 	viper.BindPFlag("ldap.url", serverCmd.Flags().Lookup("ldap-url"))
 	viper.BindPFlag("ldap.bindDN", serverCmd.Flags().Lookup("ldap-bind-dn"))
 	viper.BindPFlag("ldap.bindPassword", serverCmd.Flags().Lookup("ldap-bind-password"))
@@ -56,18 +64,41 @@ func init() {
 	viper.BindEnv("ldap.bindPassword", "LDAP_BIND_PASSWORD")
 	viper.BindEnv("ldap.baseDN", "LDAP_BASE_DN")
 	viper.BindEnv("ldap.tlsVerify", "LDAP_TLS_VERIFY")
-	viper.BindEnv("api.port", "PORT")
+	viper.BindEnv("server.port", "PORT")
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
 	log.Info("Starting ETC Collector server",
 		"version", Version,
-		"port", viper.GetInt("api.port"),
+		"port", viper.GetInt("server.port"),
 	)
 
 	// Validate LDAP configuration
-	if viper.GetString("ldap.url") == "" {
+	ldapURLValue := viper.GetString("ldap.url")
+	if ldapURLValue == "" {
 		return fmt.Errorf("LDAP URL is required (--ldap-url or LDAP_URL)")
+	}
+
+	// Create configuration
+	cfg := config.Default()
+	cfg.Server.Port = viper.GetInt("server.port")
+	cfg.Server.Host = "0.0.0.0"
+	cfg.LDAP.URL = ldapURLValue
+	cfg.LDAP.BindDN = viper.GetString("ldap.bindDN")
+	cfg.LDAP.BindPassword = viper.GetString("ldap.bindPassword")
+	cfg.LDAP.BaseDN = viper.GetString("ldap.baseDN")
+	cfg.LDAP.TLSVerify = viper.GetBool("ldap.tlsVerify")
+	cfg.LDAP.Timeout = 30 * time.Second
+
+	log.Info("Server configuration",
+		"ldap_url", cfg.LDAP.URL,
+		"ldap_base_dn", cfg.LDAP.BaseDN,
+		"tls_verify", cfg.LDAP.TLSVerify,
+	)
+
+	// Load JWT keys (generate if needed)
+	if err := ensureKeys(cfg); err != nil {
+		log.Warn("Failed to load/generate keys, token auth will be limited", "error", err)
 	}
 
 	// Create context with signal handling
@@ -84,22 +115,81 @@ func runServer(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
-	// TODO: Initialize providers
-	// TODO: Initialize API server
-	// TODO: Start server
+	// Initialize LDAP provider
+	ldapProvider, err := ldap.NewClient(ldap.Config{
+		URL:          cfg.LDAP.URL,
+		BindDN:       cfg.LDAP.BindDN,
+		BindPassword: cfg.LDAP.BindPassword,
+		BaseDN:       cfg.LDAP.BaseDN,
+		TLSVerify:    cfg.LDAP.TLSVerify,
+		Timeout:      cfg.LDAP.Timeout,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create LDAP client: %w", err)
+	}
 
-	log.Info("Server configuration",
-		"ldap_url", viper.GetString("ldap.url"),
-		"ldap_base_dn", viper.GetString("ldap.baseDN"),
-		"tls_verify", viper.GetBool("ldap.tlsVerify"),
-	)
+	// Test LDAP connection and keep it open for the API server
+	log.Info("Testing LDAP connection...")
+	if err := ldapProvider.Connect(ctx); err != nil {
+		return fmt.Errorf("failed to connect to LDAP: %w", err)
+	}
+	log.Info("LDAP connection successful")
 
-	// Placeholder - will be replaced with actual server
-	fmt.Println("Server would start here (not yet implemented)")
-	fmt.Printf("Press Ctrl+C to stop\n")
+	// Create provider manager
+	manager := providers.NewManager()
+	if err := manager.Register(ldapProvider); err != nil {
+		return fmt.Errorf("failed to register LDAP provider: %w", err)
+	}
 
-	<-ctx.Done()
-	log.Info("Server stopped")
+	// Create and start API server
+	server := api.NewServer(cfg, manager)
 
-	return nil
+	// Start server in goroutine
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.Start()
+	}()
+
+	// Wait for shutdown or error
+	select {
+	case <-ctx.Done():
+		log.Info("Shutting down server...")
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		return server.Shutdown(shutdownCtx)
+	case err := <-errCh:
+		return err
+	}
+}
+
+// ensureKeys ensures JWT keys exist or generates them
+func ensureKeys(cfg *config.Config) error {
+	// Try to load existing keys
+	if err := cfg.LoadKeys(); err == nil && cfg.Auth.PrivateKey != nil {
+		log.Info("Loaded existing JWT keys")
+		return nil
+	}
+
+	// Check if key files exist
+	if _, err := os.Stat(cfg.Auth.JWTPrivateKeyPath); err == nil {
+		return cfg.LoadKeys()
+	}
+
+	// Generate new keys
+	log.Info("Generating new JWT keys...")
+
+	// Create keys directory
+	keysDir := "./keys"
+	if err := os.MkdirAll(keysDir, 0700); err != nil {
+		return fmt.Errorf("failed to create keys directory: %w", err)
+	}
+
+	// Generate RSA key pair using openssl (simpler than pure Go for this)
+	// In production, you'd want to use crypto/rsa directly
+	log.Warn("JWT keys not found. Please generate keys manually:")
+	log.Warn("  openssl genrsa -out keys/private.pem 2048")
+	log.Warn("  openssl rsa -in keys/private.pem -pubout -out keys/public.pem")
+	log.Warn("Server will start without token authentication")
+
+	return fmt.Errorf("JWT keys not found")
 }

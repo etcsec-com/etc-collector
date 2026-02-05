@@ -58,6 +58,7 @@ func (d *ESC3EnrollmentAgentDetector) Detect(ctx context.Context, data *audit.De
 	return []types.Finding{finding}
 }
 
-func init() {
-	audit.MustRegister(NewESC3EnrollmentAgentDetector())
-}
+// init() commented out - duplicate of adcs/esc3.go
+// func init() {
+// 	audit.MustRegister(NewESC3EnrollmentAgentDetector())
+// }

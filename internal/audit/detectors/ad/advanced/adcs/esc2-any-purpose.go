@@ -61,6 +61,7 @@ func (d *ESC2AnyPurposeDetector) Detect(ctx context.Context, data *audit.Detecto
 	return []types.Finding{finding}
 }
 
-func init() {
-	audit.MustRegister(NewESC2AnyPurposeDetector())
-}
+// init() commented out - duplicate of adcs/esc2.go
+// func init() {
+// 	audit.MustRegister(NewESC2AnyPurposeDetector())
+// }

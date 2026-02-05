@@ -1,5 +1,4 @@
 # Binaries
-bin/
 dist/
 *.exe
 *.exe~
@@ -7,11 +6,11 @@ dist/
 *.so
 *.dylib
 
-# Test binary, built with `go test -c`
+# Test binary
 *.test
 
-# Output of the go coverage tool
-*.out
+# Coverage
+coverage.out
 coverage.html
 
 # Dependency directories
@@ -28,29 +27,21 @@ vendor/
 .DS_Store
 Thumbs.db
 
-# Local configuration
+# Build cache
+.cache/
+
+# Debug
+__debug_bin*
+
+# Environment
 .env
 .env.local
-.env.*.local
+*.env
+
+# Config with secrets
 config.yaml
 config.local.yaml
 
-# Keys and certificates (generate your own)
-keys/
-certs/
-*.pem
-*.key
-*.crt
-*.p12
-
 # Data directory
 data/
-
-# Private files (never commit)
-.private/
-.bmad-core/
-.claude/
-
-# Debug files
-*.log
-debug/
+keys/
