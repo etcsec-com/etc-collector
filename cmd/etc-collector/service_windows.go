@@ -3,24 +3,37 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
 	"golang.org/x/sys/windows/svc/eventlog"
 	"golang.org/x/sys/windows/svc/mgr"
+
+	"github.com/etcsec-com/etc-collector/internal/api"
+	"github.com/etcsec-com/etc-collector/internal/config"
+	"github.com/etcsec-com/etc-collector/internal/providers"
+	"github.com/etcsec-com/etc-collector/internal/providers/ldap"
+
+	// Import detectors to register them via init()
+	_ "github.com/etcsec-com/etc-collector/internal/audit/detectors/ad"
 )
 
-const serviceName = "etc-collector"
+const serviceName = "ETCCollector"
 const serviceDisplayName = "ETC Collector"
-const serviceDescription = "Identity security audit collector for Active Directory"
+const serviceDescription = "Identity security audit collector for Active Directory environments"
 
 var elog debug.Log
 
 // windowsService implements svc.Handler
-type windowsService struct{}
+type windowsService struct {
+	server *api.Server
+	cancel context.CancelFunc
+}
 
 func (ws *windowsService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (ssec bool, errno uint32) {
 	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown
@@ -28,16 +41,68 @@ func (ws *windowsService) Execute(args []string, r <-chan svc.ChangeRequest, cha
 	changes <- svc.Status{State: svc.StartPending}
 	elog.Info(1, fmt.Sprintf("Starting %s service", serviceName))
 
-	// Start the daemon
-	// Note: In real implementation, daemon would be started here
-	// daemon, err := startDaemon()
-	// if err != nil {
-	//     elog.Error(1, fmt.Sprintf("Failed to start daemon: %v", err))
-	//     return
-	// }
+	// Load configuration
+	exePath, _ := os.Executable()
+	workDir := filepath.Dir(exePath)
+	os.Chdir(workDir)
+
+	cfg, err := config.Load(filepath.Join(workDir, "config.yaml"))
+	if err != nil {
+		cfg = config.Default()
+		elog.Warning(1, fmt.Sprintf("Using default config: %v", err))
+	}
+
+	// Load keys
+	if err := cfg.LoadKeys(); err != nil {
+		elog.Warning(1, fmt.Sprintf("Failed to load JWT keys: %v", err))
+	}
+
+	// Create context
+	ctx, cancel := context.WithCancel(context.Background())
+	ws.cancel = cancel
+
+	// Initialize LDAP provider
+	ldapProvider, err := ldap.NewClient(ldap.Config{
+		URL:          cfg.LDAP.URL,
+		BindDN:       cfg.LDAP.BindDN,
+		BindPassword: cfg.LDAP.BindPassword,
+		BaseDN:       cfg.LDAP.BaseDN,
+		TLSVerify:    cfg.LDAP.TLSVerify,
+		Timeout:      cfg.LDAP.Timeout,
+	})
+	if err != nil {
+		elog.Error(1, fmt.Sprintf("Failed to create LDAP client: %v", err))
+		return true, 1
+	}
+
+	// Connect to LDAP
+	if err := ldapProvider.Connect(ctx); err != nil {
+		elog.Error(1, fmt.Sprintf("Failed to connect to LDAP: %v", err))
+		return true, 1
+	}
+	elog.Info(1, "LDAP connection successful")
+
+	// Create provider manager
+	manager := providers.NewManager()
+	if err := manager.Register(ldapProvider); err != nil {
+		elog.Error(1, fmt.Sprintf("Failed to register LDAP provider: %v", err))
+		return true, 1
+	}
+
+	// Create and start API server
+	ws.server = api.NewServer(cfg, manager)
+
+	// Start server in goroutine
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ws.server.Start()
+	}()
+
+	// Wait for server to start
+	time.Sleep(time.Second)
 
 	changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
-	elog.Info(1, fmt.Sprintf("%s service is now running", serviceName))
+	elog.Info(1, fmt.Sprintf("%s service is now running on port %d", serviceName, cfg.Server.Port))
 
 loop:
 	for {
@@ -52,16 +117,29 @@ loop:
 				elog.Info(1, fmt.Sprintf("Stopping %s service", serviceName))
 				break loop
 			default:
-				elog.Error(1, fmt.Sprintf("Unexpected control request #%d", c))
+				elog.Warning(1, fmt.Sprintf("Unexpected control request #%d", c))
 			}
+		case err := <-errCh:
+			if err != nil {
+				elog.Error(1, fmt.Sprintf("Server error: %v", err))
+			}
+			break loop
 		}
 	}
 
 	changes <- svc.Status{State: svc.StopPending}
 
-	// Stop the daemon
-	// daemon.Stop()
+	// Shutdown server
+	if ws.server != nil {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		ws.server.Shutdown(shutdownCtx)
+	}
+	if ws.cancel != nil {
+		ws.cancel()
+	}
 
+	elog.Info(1, fmt.Sprintf("%s service stopped", serviceName))
 	return
 }
 
@@ -94,30 +172,68 @@ func runService(isDebug bool) error {
 	return nil
 }
 
-// installService installs the Windows service
-func installService() error {
+// installWindowsService installs the Windows service with configuration
+func installWindowsService() error {
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to get executable path: %w", err)
 	}
 
+	// Create config file in the same directory as the executable
+	workDir := filepath.Dir(exePath)
+	configPath := filepath.Join(workDir, "config.yaml")
+
+	// Create config content
+	configContent := fmt.Sprintf(`# ETC Collector Configuration
+# Generated by service install
+
+server:
+  port: %d
+  host: "0.0.0.0"
+
+ldap:
+  url: "%s"
+  bindDN: "%s"
+  bindPassword: "%s"
+  baseDN: "%s"
+  tlsVerify: %t
+  timeout: 30s
+
+auth:
+  jwtPrivateKeyPath: "./keys/private.pem"
+  jwtPublicKeyPath: "./keys/public.pem"
+  tokenLifetime: 720h
+
+log:
+  level: "info"
+  format: "json"
+`, svcPort, svcLdapURL, svcLdapBindDN, svcLdapBindPass, svcLdapBaseDN, !svcLdapTLSSkip)
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+	fmt.Printf("Configuration written to: %s\n", configPath)
+
+	// Connect to service manager
 	m, err := mgr.Connect()
 	if err != nil {
 		return fmt.Errorf("failed to connect to service manager: %w", err)
 	}
 	defer m.Disconnect()
 
+	// Check if service already exists
 	s, err := m.OpenService(serviceName)
 	if err == nil {
 		s.Close()
-		return fmt.Errorf("service %s already exists", serviceName)
+		return fmt.Errorf("service %s already exists. Use 'service uninstall' first", serviceName)
 	}
 
+	// Create service - runs with "service run" argument
 	s, err = m.CreateService(serviceName, exePath, mgr.Config{
 		DisplayName: serviceDisplayName,
 		Description: serviceDescription,
 		StartType:   mgr.StartAutomatic,
-	}, "--daemon")
+	}, "service", "run")
 	if err != nil {
 		return fmt.Errorf("failed to create service: %w", err)
 	}
@@ -130,7 +246,11 @@ func installService() error {
 		return fmt.Errorf("failed to install event log: %w", err)
 	}
 
-	fmt.Printf("Service %s installed successfully\n", serviceName)
+	fmt.Printf("\nService '%s' installed successfully!\n", serviceName)
+	fmt.Println("\nNext steps:")
+	fmt.Println("  1. Ensure JWT keys exist in the 'keys' folder")
+	fmt.Println("  2. Start the service: etc-collector service start")
+	fmt.Println("  3. Check status: etc-collector service status")
 	return nil
 }
 
@@ -148,6 +268,20 @@ func uninstallService() error {
 	}
 	defer s.Close()
 
+	// Stop service if running
+	status, err := s.Query()
+	if err == nil && status.State != svc.Stopped {
+		s.Control(svc.Stop)
+		// Wait for stop
+		for i := 0; i < 10; i++ {
+			time.Sleep(time.Second)
+			status, err = s.Query()
+			if err != nil || status.State == svc.Stopped {
+				break
+			}
+		}
+	}
+
 	err = s.Delete()
 	if err != nil {
 		return fmt.Errorf("failed to delete service: %w", err)
@@ -155,10 +289,113 @@ func uninstallService() error {
 
 	err = eventlog.Remove(serviceName)
 	if err != nil {
-		return fmt.Errorf("failed to remove event log: %w", err)
+		fmt.Printf("Warning: failed to remove event log: %v\n", err)
 	}
 
-	fmt.Printf("Service %s removed successfully\n", serviceName)
+	fmt.Printf("Service '%s' removed successfully\n", serviceName)
+	return nil
+}
+
+// startWindowsService starts the Windows service
+func startWindowsService() error {
+	m, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("failed to connect to service manager: %w", err)
+	}
+	defer m.Disconnect()
+
+	s, err := m.OpenService(serviceName)
+	if err != nil {
+		return fmt.Errorf("service %s is not installed", serviceName)
+	}
+	defer s.Close()
+
+	err = s.Start()
+	if err != nil {
+		return fmt.Errorf("failed to start service: %w", err)
+	}
+
+	fmt.Printf("Service '%s' started\n", serviceName)
+	return nil
+}
+
+// stopWindowsService stops the Windows service
+func stopWindowsService() error {
+	m, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("failed to connect to service manager: %w", err)
+	}
+	defer m.Disconnect()
+
+	s, err := m.OpenService(serviceName)
+	if err != nil {
+		return fmt.Errorf("service %s is not installed", serviceName)
+	}
+	defer s.Close()
+
+	status, err := s.Control(svc.Stop)
+	if err != nil {
+		return fmt.Errorf("failed to stop service: %w", err)
+	}
+
+	// Wait for service to stop
+	timeout := time.Now().Add(30 * time.Second)
+	for status.State != svc.Stopped {
+		if time.Now().After(timeout) {
+			return fmt.Errorf("timeout waiting for service to stop")
+		}
+		time.Sleep(time.Second)
+		status, err = s.Query()
+		if err != nil {
+			return fmt.Errorf("failed to query service: %w", err)
+		}
+	}
+
+	fmt.Printf("Service '%s' stopped\n", serviceName)
+	return nil
+}
+
+// statusWindowsService shows the status of the Windows service
+func statusWindowsService() error {
+	m, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("failed to connect to service manager: %w", err)
+	}
+	defer m.Disconnect()
+
+	s, err := m.OpenService(serviceName)
+	if err != nil {
+		fmt.Printf("Service '%s' is not installed\n", serviceName)
+		return nil
+	}
+	defer s.Close()
+
+	status, err := s.Query()
+	if err != nil {
+		return fmt.Errorf("failed to query service: %w", err)
+	}
+
+	stateStr := "Unknown"
+	switch status.State {
+	case svc.Stopped:
+		stateStr = "Stopped"
+	case svc.StartPending:
+		stateStr = "Starting"
+	case svc.StopPending:
+		stateStr = "Stopping"
+	case svc.Running:
+		stateStr = "Running"
+	case svc.ContinuePending:
+		stateStr = "Continue Pending"
+	case svc.PausePending:
+		stateStr = "Pause Pending"
+	case svc.Paused:
+		stateStr = "Paused"
+	}
+
+	fmt.Printf("Service: %s\n", serviceName)
+	fmt.Printf("Status:  %s\n", stateStr)
+	fmt.Printf("PID:     %d\n", status.ProcessId)
 	return nil
 }
 

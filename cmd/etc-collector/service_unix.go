@@ -6,17 +6,32 @@ import "errors"
 
 // runService is a no-op on non-Windows systems
 func runService(isDebug bool) error {
-	return errors.New("Windows service mode not supported on this platform")
+	return errors.New("Windows service mode not supported on this platform. Use systemd instead")
 }
 
-// installService is a no-op on non-Windows systems
-func installService() error {
+// installWindowsService is a no-op on non-Windows systems
+func installWindowsService() error {
 	return errors.New("Windows service installation not supported on this platform")
 }
 
 // uninstallService is a no-op on non-Windows systems
 func uninstallService() error {
 	return errors.New("Windows service uninstallation not supported on this platform")
+}
+
+// startWindowsService is a no-op on non-Windows systems
+func startWindowsService() error {
+	return errors.New("Windows service not supported on this platform")
+}
+
+// stopWindowsService is a no-op on non-Windows systems
+func stopWindowsService() error {
+	return errors.New("Windows service not supported on this platform")
+}
+
+// statusWindowsService is a no-op on non-Windows systems
+func statusWindowsService() error {
+	return errors.New("Windows service not supported on this platform")
 }
 
 // isWindowsService always returns false on non-Windows systems

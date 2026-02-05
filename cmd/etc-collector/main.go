@@ -9,7 +9,7 @@ import (
 )
 
 // Version is set at build time
-var Version = "2.0.0-dev"
+var Version = "2.1.1"
 
 func main() {
 	if err := Execute(); err != nil {
