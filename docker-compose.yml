@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  etc-collector:
+    build: .
+    image: etc-collector:2.0.0
+    container_name: etc-collector
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./data:/app/data
+      - ./keys:/app/keys
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      # LDAP Configuration (override via env or config file)
+      - LDAP_URL=${LDAP_URL:-}
+      - LDAP_BIND_DN=${LDAP_BIND_DN:-}
+      - LDAP_BIND_PASSWORD=${LDAP_BIND_PASSWORD:-}
+      - LDAP_BASE_DN=${LDAP_BASE_DN:-}
+      - LDAP_TLS_VERIFY=${LDAP_TLS_VERIFY:-true}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8443/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Development services (optional)
+  # openldap:
+  #   image: osixia/openldap:1.5.0
+  #   container_name: openldap
+  #   ports:
+  #     - "389:389"
+  #     - "636:636"
+  #   environment:
+  #     LDAP_ORGANISATION: "Example Inc"
+  #     LDAP_DOMAIN: "example.com"
+  #     LDAP_ADMIN_PASSWORD: "admin"
+  #   volumes:
+  #     - ldap_data:/var/lib/ldap
+  #     - ldap_config:/etc/ldap/slapd.d
+
+volumes:
+  data:
+  keys:
+  # ldap_data:
+  # ldap_config:
+
+networks:
+  default:
+    name: etc-collector-network
