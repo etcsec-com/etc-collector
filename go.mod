@@ -1,6 +1,6 @@
 module github.com/etcsec-com/etc-collector
 
-go 1.25.7
+go 1.24
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
